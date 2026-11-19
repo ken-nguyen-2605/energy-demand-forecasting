@@ -44,7 +44,19 @@ End-to-end data preprocessing, Exploratory Data Analysis (EDA), feature engineer
 
 ---
 
-## 3. Quick Start
+## 3. Dataset Setup
+
+Download the dataset from [Kaggle](https://www.kaggle.com/datasets/nicholasjhana/energy-consumption-generation-prices-and-weather) and extract `energy_dataset.csv` and `weather_features.csv` into the `data/` folder:
+
+```text
+data/
+├── energy_dataset.csv
+└── weather_features.csv
+```
+
+---
+
+## 4. Quick Start
 
 ```bash
 # 1. Install dependencies
