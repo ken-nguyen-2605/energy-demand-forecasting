@@ -16,3 +16,4 @@ data/splits/*.csv
 
 # IPYNB checkpoints
 .ipynb_checkpoints/
+results/train_log.txt

@@ -8,10 +8,10 @@ End-to-end data preprocessing, Exploratory Data Analysis (EDA), feature engineer
 
 1. **Data Preprocessing & EDA (`src/data_preprocessing.py`, `src/eda.ipynb`):**
    - Download raw datasets, clean missing values and sensor outliers, merge national energy and 5-city weather data on UTC timestamps, generate the 4-panel EDA figure (`plots/eda_4panel.png`), and create chronological **Train / Validation / Test** splits (`data/splits/`).
-2. **Feature Engineering:**
-   - Construct calendar features, time-series lag/rolling features, and domain-specific weather features from the chronological splits.
-3. **Baseline & Linear / Tree Models (`src/evaluate.py`):**
-   - Implement the shared evaluation module (`evaluate.py`) and train Baseline, Ridge/Lasso, and Random Forest models.
+2. **Feature Engineering (`src/features.py`):**
+   - Calendar features in local Spanish time (hour, weekday, month, holidays, bridge days, DST, sin/cos encodings), target lag/rolling features shifted by the forecast horizon (default **24 h = day-ahead**), and domain weather features (°C, heating/cooling degree hours, temperature², thermal inertia).
+3. **Baseline & Linear / Tree Models (`src/evaluate.py`, `src/train_models.py`):**
+   - Shared evaluation module (MAE, RMSE, MAPE, sMAPE, R², MaxAE + diagnostic plots) and training of Baselines (naive t-24h, seasonal naive t-168h, 4-week mean), Ridge/Lasso and Random Forest with validation-based tuning, feature-family ablation and 1h-vs-24h horizon comparison.
 4. **Gradient Boosting, Hyperparameter Tuning & SHAP:**
    - Train and tune **LightGBM** and **XGBoost** models, run **SHAP** feature attribution analysis, and verify end-to-end reproducibility.
 
@@ -35,9 +35,14 @@ End-to-end data preprocessing, Exploratory Data Analysis (EDA), feature engineer
 │   └── eda_4panel.png                   # 4-panel Seaborn EDA figure
 ├── src/
 │   ├── data_preprocessing.py            # Automated script for cleaning, merging, EDA plotting & splitting
-│   └── eda.ipynb                        # Interactive Jupyter Notebook for data exploration & cleaning
+│   ├── eda.ipynb                        # Interactive Jupyter Notebook for data exploration & cleaning
+│   ├── features.py                      # Calendar / lag / weather feature engineering (leakage-safe)
+│   ├── evaluate.py                      # Shared metrics, ResultsLog and diagnostic plots (use for ALL models)
+│   └── train_models.py                  # Baselines, Ridge/Lasso, Random Forest, ablation, horizon study
+├── results/                             # metrics.csv, tuning_*.csv, ablation, importances, test predictions
 ├── tests/
-│   └── test_data_preprocessing.py       # Automated pytest suite verifying data preprocessing & splits
+│   ├── test_data_preprocessing.py       # Automated pytest suite verifying data preprocessing & splits
+│   └── test_features_and_evaluate.py    # No-look-ahead lag tests, calendar/timezone tests, metric tests
 ├── pyproject.toml                       # Project dependencies managed by uv (Python >= 3.12)
 └── uv.lock                              # Reproducible dependency lockfile
 ```
@@ -65,6 +70,32 @@ uv sync
 # 2. Run data cleaning, 4-panel EDA plot, and chronological split
 uv run python src/data_preprocessing.py
 
-# 3. Run automated pipeline verification tests
+# 3. Build features (prints the feature list and split shapes)
+uv run python src/features.py
+
+# 4. Train baselines, Ridge/Lasso, Random Forest (+ ablation & horizon study), ~5-10 min
+uv run python src/train_models.py            # add --fast for a quick smoke test
+
+# 5. Run automated pipeline verification tests
 uv run pytest -q
 ```
+
+---
+
+## 5. Using the shared modules (for Part D / E)
+
+```python
+import sys; sys.path.append("src")
+from features import FeatureConfig, make_datasets, feature_columns, TARGET
+from evaluate import ResultsLog
+
+data = make_datasets(FeatureConfig(horizon=24))          # same features for every model
+cols = feature_columns(data["train"])
+log = ResultsLog()
+# ... fit on data["train"], tune on data["val"], refit on train+val ...
+log.add("LightGBM", "test", data["test"][TARGET], y_pred)
+```
+
+Protocol used for every model: tune hyper-parameters on **train → val** (MAE), refit the chosen
+configuration on **train + val**, score once on **test**. `total load forecast` (TSO) is a reference
+benchmark only and is never used as an input feature.
