@@ -9,8 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from evaluate import ResultsLog, evaluate, mae, mape, r2, rmse, smape  # noqa: E402
-from features import (  # noqa: E402
+from src.evaluate import ResultsLog, evaluate, mae, mape, r2, rmse, smape  # noqa: E402
+from src.features import (  # noqa: E402
     TARGET,
     TSO_FORECAST,
     FeatureConfig,
