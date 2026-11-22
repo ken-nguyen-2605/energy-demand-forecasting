@@ -1,0 +1,289 @@
+% ============================================================================
+% Mục 4.4 - Hiện thực mã nguồn của phần B (features.py) và C (evaluate.py)
+% ============================================================================
+\subsection{Hiện thực mã nguồn (Phần B và C)}\label{sec:impl}
+
+Mục này mô tả chi tiết hai mô-đun dùng chung do phần B và C viết: \code{src/features.py} (đặc trưng) và
+\code{src/evaluate.py} (đánh giá). Với mỗi file, báo cáo liệt kê các thư viện được import, các biến toàn cục
+(global), các lớp và hàm, kèm giải thích đầu vào, đầu ra và cách hoạt động. Mô-đun huấn luyện
+\code{train_models.py} chỉ \emph{gọi} hai mô-đun này nên không được mô tả lại ở đây.
+
+\subsubsection{Tổng quan luồng gọi hàm}\label{sec:impl-flow}
+
+\begin{lstlisting}[language={},numbers=none,caption={Luồng gọi hàm từ dữ liệu đã chia đến bảng kết quả.},label={lst:callgraph}]
+features.make_datasets(cfg)
+ |-- load_splits()                    -> {train, val, test} (Parquet from part A)
+ |-- build_feature_frame(full, cfg)   -> time + target + TSO + 39 features
+ |    |-- add_calendar_features(full)       15 columns cal_*
+ |    |-- add_lag_features(full, cfg)       13 columns lag_*, roll_*, diff_24
+ |    `-- add_weather_features(full, cfg)   11 columns w_*
+ |-- cut back by train/val/test time bounds, dropna (lag warm-up)
+ `-- feature_columns(frame)           -> list of model inputs
+
+train_models.py: fit model on feature_columns -> y_pred
+evaluate.ResultsLog.add(model, split, y_true, y_pred)
+ `-- evaluate() -> mae, rmse, mape, smape, r2, max_ae  (each calls _as_arrays)
+evaluate.plot_* / error_by_group  -> figures in plots/
+\end{lstlisting}
+
+\subsubsection{Các thư viện được import}\label{sec:impl-imports}
+
+Hai mô-đun \textbf{không thêm thư viện bên thứ ba nào mới}: mọi gói đều đã có trong \code{pyproject.toml}
+của phần A, nên \code{uv sync} không cần thay đổi. Các import ``mới'' (chưa xuất hiện trong
+\code{data_preprocessing.py}) là \code{from __future__ import annotations} và \code{dataclasses.field}.
+
+\begingroup\footnotesize
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.30\linewidth}>{\raggedright\arraybackslash}p{0.13\linewidth}>{\raggedright\arraybackslash}p{0.07\linewidth}p{0.40\linewidth}}
+\caption{Các import trong \code{features.py} (F) và \code{evaluate.py} (E).}\label{tab:imports}\\
+\toprule
+Import & Dùng ở & Mới? & Vai trò\\
+\midrule
+\endfirsthead
+\toprule
+Import & Dùng ở & Mới? & Vai trò\\
+\midrule
+\endhead
+\code{from __future__ import annotations} & F, E & Có &
+Hoãn việc đánh giá chú thích kiểu (type hint): Python lưu chúng dưới dạng chuỗi thay vì thực thi ngay. Nhờ đó
+có thể viết gọn \code{FeatureConfig | None}, \code{dict[str, pd.DataFrame]}, \code{tuple[int, ...]} và tham
+chiếu tới lớp chưa được định nghĩa xong, mà không tốn chi phí lúc chạy.\\
+\code{from dataclasses import dataclass} & F, E & Không &
+Decorator tự sinh \code{__init__}, \code{__repr__}, \code{__eq__} từ các trường khai báo. Dùng cho
+\code{FeatureConfig} và \code{ResultsLog}.\\
+\code{from dataclasses import field} & F, E & Có &
+Dùng \code{field(default_factory=list)} để mỗi đối tượng có \emph{một danh sách riêng}. Viết
+\code{rows: list = []} là lỗi trong dataclass, vì mọi đối tượng sẽ dùng chung một list có thể thay đổi
+(\emph{mutable default}).\\
+\code{from pathlib import Path} & F, E & Không &
+Đường dẫn hướng đối tượng, ghép bằng toán tử \code{/}, chạy đúng trên cả Windows và Linux.\\
+\code{import numpy as np} & F, E & Không &
+Tính toán vector: \code{np.sin/cos} (mã hóa tuần hoàn), \code{np.abs}, \code{np.mean}, \code{np.sqrt},
+\code{np.isfinite} (các chỉ số).\\
+\code{import pandas as pd} & F, E & Không &
+Xử lý bảng và chuỗi thời gian: đọc Parquet, \code{tz_convert}, \code{shift}, \code{rolling}, \code{groupby}.\\
+\code{import matplotlib}; \code{matplotlib.use("Agg")} & E & Không &
+Chọn backend \emph{Agg} (vẽ ra file, không mở cửa sổ) để script chạy được trên máy không có giao diện hoặc
+server. Phải gọi \emph{trước} khi import \code{pyplot}.\\
+\code{import matplotlib.pyplot as plt} & E & Không &
+Vẽ các hình chẩn đoán (đường dự báo, phần dư, biểu đồ cột).\\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\subsubsection{File \code{features.py}}\label{sec:impl-features}
+
+\paragraph{Biến toàn cục.} Theo quy ước Python, tên viết HOA là hằng số; tên bắt đầu bằng dấu gạch dưới
+(\code{_FIXED_HOLIDAYS}) là ``nội bộ'', không nên import từ bên ngoài.
+
+\begingroup\footnotesize
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}p{0.27\linewidth}p{0.38\linewidth}}
+\caption{Biến toàn cục trong \code{features.py}.}\label{tab:globals-features}\\
+\toprule
+Tên & Giá trị & Ý nghĩa\\
+\midrule
+\endfirsthead
+\toprule
+Tên & Giá trị & Ý nghĩa\\
+\midrule
+\endhead
+\code{ROOT_DIR} & \code{Path(__file__).resolve()} \code{.parent.parent} &
+Thư mục gốc repo, suy ra từ vị trí file. Nhờ vậy script chạy đúng dù được gọi từ thư mục nào.\\
+\code{SPLIT_DIR} & \code{ROOT_DIR/"data"/"splits"} & Nơi phần A ghi \code{train/val/test.parquet}.\\
+\code{TARGET} & \code{"total load actual"} & Tên cột mục tiêu $y_t$. Mọi mô-đun dùng hằng này thay vì gõ lại chuỗi, tránh lỗi chính tả.\\
+\code{TSO_FORECAST} & \code{"total load forecast"} & Cột dự báo của TSO: giữ lại để làm mốc so sánh, \textbf{không} bao giờ là đặc trưng đầu vào.\\
+\code{LOCAL_TZ} & \code{"Europe/Madrid"} & Múi giờ địa phương để tính đặc trưng lịch (CET/CEST).\\
+\code{_FIXED_HOLIDAYS} & 9 chuỗi \code{"MM-DD"} & Các ngày lễ quốc gia có ngày cố định hằng năm.\\
+\code{_GOOD_FRIDAYS} & 4 ngày 2015--2018 & Thứ Sáu Tuần Thánh (ngày di động theo lịch Phục Sinh).\\
+\code{SPAIN_HOLIDAYS} & \code{pd.DatetimeIndex} (49 ngày) &
+Ghép 9 ngày cố định $\times$ 5 năm (2014--2018) với 4 ngày Thứ Sáu Tuần Thánh. Dùng \code{.isin()} để gắn cờ ngày lễ rất nhanh.\\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\paragraph{Lớp \code{FeatureConfig}} (\code{@dataclass}) gom toàn bộ ``siêu tham số'' của pipeline đặc trưng
+vào một đối tượng, để thí nghiệm ablation và so sánh chân trời chỉ cần đổi cấu hình, không phải sửa code.
+
+\begingroup\footnotesize
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.22\linewidth}>{\raggedright\arraybackslash}p{0.25\linewidth}p{0.43\linewidth}}
+\caption{Các trường của \code{FeatureConfig}.}\label{tab:featureconfig}\\
+\toprule
+Trường & Mặc định & Ý nghĩa\\
+\midrule
+\endfirsthead
+\toprule
+Trường & Mặc định & Ý nghĩa\\
+\midrule
+\endhead
+\code{horizon} & \code{24} & Chân trời dự báo $h$ (giờ). 24 là dự báo ngày tới, 1 là dự báo giờ tới.\\
+\code{lags} & \code{(1,2,3,24,48,72,168,336)} & Danh sách độ trễ \emph{ứng viên}; chỉ những lag $\geq h$ được dùng thật.\\
+\code{roll_windows} & \code{(24, 168)} & Độ dài cửa sổ trượt (1 ngày, 1 tuần) cho trung bình và độ lệch chuẩn.\\
+\code{comfort_temp_c} & \code{18.0} & Nhiệt độ gốc (°C) cho độ-giờ sưởi; ngưỡng làm mát là \code{comfort_temp_c + 4} = 22\,°C.\\
+\code{use_calendar}, \code{use_lags}, \code{use_weather} & \code{True} & Bật/tắt từng nhóm đặc trưng, dùng cho ablation (\cref{tab:ablation}).\\
+\code{extra_drop} & \code{[]} (qua \code{field}) & Tên các cột muốn bỏ thêm khi thử nghiệm.\\
+\bottomrule
+\end{longtable}
+\endgroup
+
+Thuộc tính \code{effective_lags} (\code{@property}, tính lại mỗi lần truy cập) trả về
+\texttt{sorted(\{lag for lag in lags if lag >= horizon\} | \{horizon\})}. Đây là chốt chặn rò rỉ quan trọng nhất của
+phần B: với $h=24$ kết quả là $[24, 48, 72, 168, 336]$ (lag 1--3 tự động bị loại); với $h=1$ là
+$[1, 2, 3, 24, 48, 72, 168, 336]$. Phép hợp \texttt{| \{horizon\}} bảo đảm luôn có cột \code{lag_h}, vì mô hình
+cơ sở ngây thơ $\hat y_t = y_{t-h}$ cần cột này.
+
+\paragraph{Các hàm.}
+
+\begingroup\footnotesize
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.31\linewidth}p{0.63\linewidth}}
+\caption{Các hàm trong \code{features.py}.}\label{tab:functions-features}\\
+\toprule
+Hàm & Chức năng và cách hoạt động\\
+\midrule
+\endfirsthead
+\toprule
+Hàm & Chức năng và cách hoạt động\\
+\midrule
+\endhead
+\code{load_splits(split_dir)} &
+\textbf{Vào:} thư mục chứa các tập đã chia. \textbf{Ra:} \code{dict} gồm 3 DataFrame \code{"train"}, \code{"val"},
+\code{"test"}. Đọc file Parquet nên giữ nguyên kiểu \code{datetime64[UTC]} của cột \code{time}.\\
+\addlinespace
+\code{add_calendar_features(df)} &
+\textbf{Vào:} DataFrame có cột \code{time} (UTC). \textbf{Ra:} DataFrame 15 cột \code{cal_*}, cùng index.
+Các bước: (1) \code{tz_convert(LOCAL_TZ)} đổi sang giờ địa phương; (2) \code{tz_localize(None).dt.normalize()}
+lấy ngày địa phương (00:00) để so với \code{SPAIN_HOLIDAYS}; (3) trích giờ/thứ/tháng/ngày trong năm;
+(4) tạo cờ cuối tuần, ngày lễ, ngày nghỉ; (5) ngày ``cầu'' = ngày làm việc mà hôm trước \emph{và} hôm sau
+đều là ngày nghỉ, kiểm tra bằng cách dịch ngày $\pm 1$ và dùng \texttt{(dow $\pm$ 1) \% 7}; (6) giờ mùa hè được
+suy ra từ độ lệch giờ địa phương so với UTC (2 giờ = CEST); (7) mã hóa $\sin/\cos$ cho giờ, thứ, ngày trong năm.\\
+\addlinespace
+\code{add_lag_features(df, cfg)} &
+\textbf{Vào:} DataFrame có cột \code{TARGET} đã sắp theo thời gian. \textbf{Ra:} 13 cột (khi $h=24$).
+\code{y.shift(k)} dịch chuỗi xuống $k$ dòng, nên dòng $t$ nhận $y_{t-k}$. Biến \code{base = y.shift(h)}
+là giá trị cuối cùng quan sát được, mọi cửa sổ \code{rolling} đều tính trên \code{base}, nên không bao giờ chứa
+$y_t$. \code{min_periods=w} bắt buộc cửa sổ đủ dài, nếu không thì trả NaN (sau đó bị loại).
+\code{lag_same_hour_4w_mean} ghép 4 chuỗi dịch $168k$ giờ bằng \code{pd.concat(axis=1)} rồi lấy trung bình
+theo hàng với \code{skipna=False} (thiếu một tuần thì kết quả là NaN). \code{diff_24} $= y_{t-h} - y_{t-h-24}$.\\
+\addlinespace
+\code{add_weather_features(df, cfg)} &
+\textbf{Vào:} các cột thời tiết do phần A tổng hợp. \textbf{Ra:} 11 cột \code{w_*}. Đổi Kelvin sang °C
+($-273.15$); \code{clip(lower=0)} hiện thực hàm $\max(0,\cdot)$ của HDH/CDH; \code{rolling(24, min_periods=1)}
+cho nhiệt độ trung bình 24 giờ qua (\code{min_periods=1} để không sinh NaN ở đầu chuỗi).\\
+\addlinespace
+\code{build_feature_frame(full, cfg)} &
+\textbf{Vào:} toàn bộ dữ liệu (train+val+test nối lại). \textbf{Ra:} một DataFrame gồm \code{time},
+\code{TARGET}, \code{TSO_FORECAST} và các đặc trưng. Sắp xếp theo thời gian, \code{assert} thời gian không trùng,
+gọi ba hàm \code{add_*} theo các cờ \code{use_*}, ghép theo cột bằng \code{pd.concat(axis=1)}, rồi bỏ các cột
+trong \code{extra_drop}.\\
+\addlinespace
+\code{feature_columns(frame)} &
+\textbf{Ra:} danh sách tên cột đầu vào cho mô hình, tức mọi cột trừ \code{time}, \code{TARGET},
+\code{TSO_FORECAST}. Đây là \emph{nguồn duy nhất} quyết định mô hình được thấy cột nào, nhờ đó các phần C và D
+dùng cùng một bộ đặc trưng.\\
+\addlinespace
+\code{make_datasets(cfg, split_dir)} &
+\textbf{Hàm chính, dùng chung cho cả nhóm.} \textbf{Ra:} \code{dict} gồm 3 DataFrame đã có đặc trưng.
+(1) Ghi lại mốc thời gian đầu/cuối của từng tập; (2) nối 3 tập theo thời gian và gọi
+\code{build_feature_frame}, để lag của những giờ đầu tập val lấy được giá trị cuối tập train (là quá khứ hợp lệ);
+(3) cắt lại theo các mốc thời gian; (4) \code{dropna} trên các cột đặc trưng, tức bỏ 672 giờ khởi động đầu tập
+train; (5) hai \code{assert} kiểm tra các tập vẫn tách rời theo thời gian và val/test \emph{không mất dòng nào}.\\
+\addlinespace
+\code{xy(df, cols)} &
+Hàm tiện ích tách DataFrame thành \code{(X, y)}. \code{train_models.py} hiện truy cập cột trực tiếp, nên hàm
+này dành cho phần D/E nếu cần.\\
+\addlinespace
+Khối \code{if __name__ == "__main__"} &
+Chỉ chạy khi gọi \code{python src/features.py}, không chạy khi file được import. In ra chân trời dự báo,
+danh sách 39 đặc trưng và kích thước từng tập, dùng để kiểm tra nhanh.\\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\subsubsection{File \code{evaluate.py}}\label{sec:impl-evaluate}
+
+\paragraph{Biến toàn cục.} Chỉ có một hằng số: \code{METRICS = ("MAE", "RMSE", "MAPE", "sMAPE", "R2", "MaxAE")}.
+Đây là danh sách tên chỉ số theo đúng thứ tự xuất trong bảng. Các mô-đun khác import hằng này khi cần lặp qua
+mọi chỉ số (ví dụ để vẽ hoặc định dạng bảng), thay vì tự gõ lại. Dùng \code{tuple} thay vì \code{list} để
+không thể bị sửa nhầm lúc chạy.
+
+\paragraph{Các hàm tính chỉ số.} Tất cả có chung chữ ký \code{f(y_true, y_pred) -> float}, nhận bất kỳ dạng
+mảng nào (list, \code{np.ndarray}, \code{pd.Series}) và trả về một số \code{float} của Python (không phải
+\code{np.float64}), để ghi ra CSV/JSON gọn gàng.
+
+\begingroup\footnotesize
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.31\linewidth}p{0.63\linewidth}}
+\caption{Các hàm và lớp trong \code{evaluate.py}.}\label{tab:functions-evaluate}\\
+\toprule
+Hàm / lớp & Chức năng và cách hoạt động\\
+\midrule
+\endfirsthead
+\toprule
+Hàm / lớp & Chức năng và cách hoạt động\\
+\midrule
+\endhead
+\code{_as_arrays(y_true, y_pred)} &
+Hàm nội bộ, được \emph{mọi} hàm chỉ số gọi đầu tiên. Chuyển đầu vào sang \code{np.float64} và làm phẳng
+(\code{ravel}), sau đó \code{raise ValueError} nếu hai mảng khác kích thước hoặc chứa NaN/inf. Nhờ vậy một lỗi
+như quên \code{dropna} sẽ báo ngay, thay vì âm thầm cho ra MAE bằng NaN hoặc sai lệch.\\
+\addlinespace
+\code{mae}, \code{rmse} & $\frac1n\sum|e_i|$ và $\sqrt{\frac1n\sum e_i^2}$ với $e_i = y_i - \hat y_i$.\\
+\addlinespace
+\code{mape} & $\frac{100}{n}\sum|e_i/y_i|$. Báo lỗi nếu có $y_i = 0$ (phép chia không xác định).\\
+\addlinespace
+\code{smape} & MAPE đối xứng, mẫu số là $(|y_i| + |\hat y_i|)/2$, nên dự báo cao hay thấp đều bị phạt như nhau.\\
+\addlinespace
+\code{r2} & $1 - SS_{res}/SS_{tot}$. Bằng 1 khi dự báo hoàn hảo, bằng 0 khi chỉ đoán bằng giá trị trung bình,
+và có thể âm. Lưu ý: không xác định khi $y$ là hằng số ($SS_{tot}=0$); điều này không xảy ra với phụ tải điện.\\
+\addlinespace
+\code{max_ae} & $\max_i |e_i|$: sai số của giờ tệ nhất.\\
+\addlinespace
+\code{evaluate(y_true, y_pred)} &
+Gọi cả 6 hàm và trả về \code{dict} \texttt{\{"MAE": ..., ..., "MaxAE": ...\}}. Đây là điểm vào duy nhất cần nhớ.\\
+\addlinespace
+Lớp \code{ResultsLog} &
+\code{@dataclass} có một trường \code{rows: list[dict]} (khởi tạo bằng \code{field(default_factory=list)}),
+mỗi phần tử là một dòng kết quả. Các phương thức:
+\begin{itemize}[leftmargin=1em,nosep]
+  \item \code{add(model, split, y_true, y_pred, **extra)}: gọi \code{evaluate}, ghép thêm tên mô hình, tên tập và
+        các thông tin phụ tùy ý qua \code{**extra} (ví dụ \code{alpha}, \code{fit_s}, \code{family}), lưu vào
+        \code{rows} và trả về \code{dict} chỉ số.
+  \item \code{to_frame()}: chuyển \code{rows} thành \code{pd.DataFrame}.
+  \item \code{pivot(metric)}: bảng mô hình $\times$ tập cho một chỉ số, ví dụ MAE theo val/test.
+  \item \code{save(path)}: tạo thư mục nếu chưa có, ghi CSV với 4 chữ số thập phân.
+\end{itemize}\\
+\addlinespace
+\code{error_by_group(time, y_true, y_pred, by, tz)} &
+Tính MAE theo nhóm \code{"hour"}, \code{"dayofweek"} hoặc \code{"month"} theo \emph{giờ địa phương}. Đổi múi
+giờ, chọn khóa nhóm bằng một \code{dict} tra cứu, tạo \code{Series} sai số tuyệt đối có index là khóa, rồi
+\code{groupby(level=0).mean()}. Dùng để vẽ \cref{fig:mae-hour}.\\
+\addlinespace
+\code{plot_forecast(...)} &
+Vẽ đường thực tế (đen, đậm) và dự báo của nhiều mô hình trong một cửa sổ \code{days} ngày bắt đầu từ
+\code{start}, lọc bằng mặt nạ boolean trên cột thời gian. Dùng cho \cref{fig:forecast}.\\
+\addlinespace
+\code{plot_residuals(...)} &
+Hình 2 ô: histogram phần dư $y - \hat y$ (tiêu đề ghi trung bình và độ lệch chuẩn), và biểu đồ phân tán dự báo
+so với thực tế, kèm đường chéo $y=\hat y$ màu đỏ. Dùng cho \cref{fig:residuals}.\\
+\addlinespace
+\code{plot_metric_bars(table, metric, out_path, split)} &
+Biểu đồ cột ngang một chỉ số cho mọi mô hình trên một tập. Sắp tăng dần (riêng $R^2$ sắp giảm dần vì càng lớn
+càng tốt), ghi giá trị cạnh mỗi cột. Dùng cho \cref{fig:bars}.\\
+\bottomrule
+\end{longtable}
+\endgroup
+
+Mọi hàm vẽ đều tự tạo thư mục đích (\code{mkdir(parents=True, exist_ok=True)}), lưu ở 150 dpi và gọi
+\code{plt.close(fig)} để giải phóng bộ nhớ khi vẽ nhiều hình liên tiếp.
+
+\subsubsection{Các quyết định thiết kế chung}\label{sec:impl-design}
+\begin{itemize}
+  \item \textbf{Hàm thuần (pure function):} các hàm \code{add_*} không sửa DataFrame đầu vào mà trả về DataFrame
+        mới có cùng index. Nhờ vậy có thể ghép bằng \code{pd.concat(axis=1)} và test riêng từng hàm.
+  \item \textbf{Cấu hình tách khỏi code:} mọi tham số nằm trong \code{FeatureConfig}. Thí nghiệm ablation chỉ
+        là một vòng lặp qua các cấu hình khác nhau.
+  \item \textbf{Báo lỗi sớm:} \code{assert} trong \code{features.py} kiểm tra các bất biến của pipeline (không
+        trùng thời gian, không chồng lấn tập, không mất dòng val/test). \code{ValueError} trong
+        \code{evaluate.py} kiểm tra dữ liệu do người dùng truyền vào, và vẫn hoạt động khi chạy Python với
+        cờ \code{-O}.
+  \item \textbf{Một nguồn sự thật:} tên cột (\code{TARGET}, \code{TSO_FORECAST}), danh sách đặc trưng
+        (\code{feature_columns}) và cách tính chỉ số (\code{evaluate}) chỉ định nghĩa một lần, nên kết quả của
+        các phần C, D, E so sánh trực tiếp được với nhau.
+\end{itemize}

@@ -1,0 +1,4 @@
+# latexmk configuration: run `latexmk main.tex` inside this src/ folder.
+# All generated files (aux, log, bbl, pdf, ...) go to ../build.
+$out_dir = '../build';
+$pdf_mode = 1;   # pdflatex -> PDF

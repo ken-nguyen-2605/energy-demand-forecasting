@@ -1,0 +1,15 @@
+% Người viết: A + E
+\section{Giới thiệu}\label{sec:intro}
+Dự báo phụ tải điện ngắn hạn (\emph{short-term load forecasting}, STLF) là đầu vào cho việc lập lịch
+huy động nguồn, thị trường điện ngày tới (day-ahead market) và vận hành an toàn lưới điện. Sai số dự báo
+chỉ 1\% cũng tương ứng với hàng trăm MW cần huy động dự phòng. Nhóm xây dựng một hệ thống dự báo phụ tải
+toàn quốc của Tây Ban Nha theo giờ từ dữ liệu lịch sử phụ tải, lịch và thời tiết.
+
+\paragraph{Phát biểu bài toán.} Gọi $y_t$ là phụ tải thực tế (MW) tại giờ $t$. Với chân trời dự báo
+$h$ (mặc định $h=24$), cần học hàm $f$ sao cho
+\begin{equation}
+  \hat{y}_t = f\bigl(y_{t-h}, y_{t-h-1}, \dots;\ \text{lịch}_t;\ \text{thời tiết}_t\bigr),
+\end{equation}
+tức là chỉ được dùng các giá trị phụ tải đã quan sát được tại thời điểm phát hành dự báo $t-h$.
+
+\todo{A + E bổ sung: động lực, mục tiêu, đóng góp chính, cấu trúc báo cáo.}

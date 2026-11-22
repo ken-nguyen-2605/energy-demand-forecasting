@@ -1,0 +1,105 @@
+% ============================================================================
+%  Báo cáo Bài tập lớn DSAI 261 - Dự báo nhu cầu điện năng theo giờ (Tây Ban Nha)
+%  Biên dịch: mọi file sinh ra (aux, log, pdf, ...) nằm trong ../build
+%   - VS Code (LaTeX Workshop): bấm Build, đã cấu hình outDir trong .vscode/settings.json
+%   - Terminal: cd vào thư mục src rồi chạy `latexmk main.tex` (đọc file src/latexmkrc)
+%  Hình ảnh lấy từ ../figures (copy từ energy-demand-forecasting/plots).
+% ============================================================================
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc}
+\usepackage[vietnamese]{babel}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs,tabularx,multirow,array,longtable}
+\usepackage{float}
+\usepackage{caption,subcaption}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{siunitx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}
+\crefname{table}{bảng}{bảng}\Crefname{table}{Bảng}{Bảng}
+\crefname{figure}{hình}{hình}\Crefname{figure}{Hình}{Hình}
+\crefname{section}{mục}{mục}\Crefname{section}{Mục}{Mục}
+\crefname{subsection}{mục}{mục}\Crefname{subsection}{Mục}{Mục}
+\crefname{subsubsection}{mục}{mục}\Crefname{subsubsection}{Mục}{Mục}
+\crefname{equation}{công thức}{công thức}\Crefname{equation}{Công thức}{Công thức}
+\crefname{listing}{đoạn mã}{đoạn mã}\Crefname{listing}{Đoạn mã}{Đoạn mã}
+\crefname{lstlisting}{đoạn mã}{đoạn mã}\Crefname{lstlisting}{Đoạn mã}{Đoạn mã}
+\crefname{appendix}{phụ lục}{phụ lục}\Crefname{appendix}{Phụ lục}{Phụ lục}
+
+\graphicspath{{../figures/}{figures/}}
+\sisetup{group-separator={,},group-minimum-digits=4}
+\setlist{itemsep=2pt,topsep=4pt}
+
+\definecolor{codebg}{RGB}{247,247,247}
+\definecolor{codekw}{RGB}{0,0,160}
+\definecolor{codecm}{RGB}{0,120,0}
+\lstset{
+  language=Python, basicstyle=\ttfamily\footnotesize, backgroundcolor=\color{codebg},
+  keywordstyle=\color{codekw}\bfseries, commentstyle=\color{codecm}\itshape,
+  stringstyle=\color{red!60!black}, frame=single, rulecolor=\color{gray!40},
+  breaklines=true, showstringspaces=false, columns=fullflexible, numbers=left,
+  numberstyle=\tiny\color{gray}, xleftmargin=1.5em, framexleftmargin=1.5em,
+  literate={ŷ}{{$\hat{y}$}}1 {°}{{$^\circ$}}1
+}
+
+\newcommand{\todo}[1]{\noindent\colorbox{yellow!30}{\parbox{\dimexpr\linewidth-2\fboxsep}{\small\textbf{TODO:} #1}}}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small DSAI 261 -- Dự báo nhu cầu điện năng}
+\rhead{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{\textbf{Dự báo nhu cầu điện năng theo giờ tại Tây Ban Nha\\bằng các mô hình học máy}\\[4pt]
+\large Bài tập lớn môn Khoa học dữ liệu \& Trí tuệ nhân tạo (DSAI) -- HK 261}
+\author{Nhóm thực hiện: A, B, C, D, E}
+\date{\today}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent Báo cáo trình bày một hệ thống dự báo phụ tải điện (\emph{total load actual}) theo giờ cho
+Tây Ban Nha giai đoạn 2015--2018, sử dụng bộ dữ liệu năng lượng của ENTSO-E kết hợp thời tiết của
+5 thành phố lớn. Bài toán chính là \textbf{dự báo trước một ngày} (day-ahead, $h=24$ giờ). Phiên bản này
+trình bày chi tiết hai phần: \textbf{(B)} xây dựng đặc trưng lịch, độ trễ và thời tiết không rò rỉ thông tin
+tương lai cùng khung repo/báo cáo; \textbf{(C)} xây dựng mô-đun đánh giá dùng chung \code{evaluate.py},
+các mô hình cơ sở, Ridge/Lasso và Random Forest. Trên tập kiểm tra (05--12/2018), Random Forest đạt
+MAE 1\,530~MW (MAPE 5.22\%), giảm 39.6\% MAE so với mô hình ngây thơ $t-24$h và tốt hơn Ridge/Lasso
+(MAPE 6.14\%). Phân tích ablation cho thấy tổ hợp đặc trưng lịch + độ trễ đóng góp phần lớn độ chính xác.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\input{sections/01_gioi_thieu}
+\input{sections/02_tong_quan}
+\input{sections/03_du_lieu}
+\section{Phương pháp và mô hình}\label{sec:methods}
+\input{sections/04_1_dac_trung}
+\input{sections/04_2_mo_hinh_co_so}
+\input{sections/04_3_boosting}
+\input{sections/04_4_hien_thuc}
+\input{sections/05_so_sanh}
+\input{sections/06_shap}
+\input{sections/07_ket_luan}
+
+\bibliographystyle{plain}
+% Explicit path: bibtex runs inside ../build, and MiKTeX ships another
+% "references.bib" (feupphdteses) that would otherwise be picked up instead.
+\bibliography{../src/references}
+
+\appendix
+\input{sections/phu_luc}
+
+\end{document}

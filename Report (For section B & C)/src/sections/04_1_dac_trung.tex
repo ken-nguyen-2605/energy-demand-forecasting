@@ -1,0 +1,168 @@
+% ============================================================================
+% Mục 4.1 - Người viết: B
+% ============================================================================
+\subsection{Xây dựng đặc trưng (Phần B)}\label{sec:features}
+
+Mục này mô tả mô-đun \code{src/features.py}: từ ba tập train/val/test do phần A tạo ra, sinh ra
+\textbf{39 đặc trưng} thuộc ba nhóm --- \emph{lịch}, \emph{độ trễ (lag)} và \emph{thời tiết} --- dùng chung
+cho mọi mô hình của nhóm (C, D). Mục tiêu thiết kế là: (i) mỗi đặc trưng đều phải \emph{quan sát được tại
+thời điểm phát hành dự báo}; (ii) có cơ sở miền (domain) rõ ràng; (iii) tái lập được và có kiểm thử tự động.
+
+\subsubsection{Thiết lập bài toán và nguyên tắc chống rò rỉ}\label{sec:setup}
+
+\paragraph{Chân trời dự báo.} Phần B chọn \textbf{dự báo trước một ngày} ($h=24$ giờ) làm bài toán chính,
+vì đây là thiết lập thực tế của thị trường điện ngày tới (OMIE) và của đơn vị vận hành lưới (REE). Chân trời
+được tham số hóa qua \code{FeatureConfig(horizon=h)}; \cref{sec:horizon} so sánh thêm $h=1$.
+
+\paragraph{Nguyên tắc chống rò rỉ (data leakage).} Mọi đặc trưng tại hàng $t$ được xây dựng sao cho:
+\begin{enumerate}
+  \item \textbf{Độ trễ $\geq h$}: chỉ dùng $y_{t-k}$ với $k\geq h$. Với $h=24$, các độ trễ 1--3 giờ bị
+        loại bỏ tự động (\code{effective_lags}) dù có trong cấu hình.
+  \item \textbf{Cửa sổ trượt kết thúc tại $t-h$}: thống kê trượt (trung bình, độ lệch chuẩn, min, max)
+        được tính trên chuỗi đã dịch $y_{t-h}$, không bao giờ chứa $y_t$.
+  \item \textbf{Tính trên trục thời gian liên tục}: ba tập được nối theo thứ tự thời gian, tính đặc trưng,
+        rồi cắt lại theo mốc thời gian của phần A. Nhờ vậy 336 giờ đầu của tập validation vẫn có đặc trưng
+        lag (lấy từ cuối tập train --- là quá khứ hợp lệ) và \textbf{không mất dòng nào} của val/test; chỉ
+        672 giờ (4 tuần) đầu của tập train bị loại do chưa đủ lịch sử.
+  \item \textbf{Loại các cột không có tại thời điểm dự báo}: các cột sản lượng phát (\code{generation *}),
+        giá (\code{price actual}) phản ánh chính phụ tải giờ $t$; cột \code{total load forecast} là dự báo
+        của TSO (tương quan 0.99 với mục tiêu, \cref{fig:eda}). Các cột này \emph{không bao giờ} là đầu vào;
+        riêng \code{total load forecast} chỉ dùng làm mốc tham chiếu (\cref{sec:baselines}).
+  \item \textbf{Chuẩn hóa nằm trong pipeline mô hình}: \code{StandardScaler} chỉ được \code{fit} trên tập
+        huấn luyện của từng lần fit (\cref{sec:linear}), không chuẩn hóa trước trên toàn bộ dữ liệu.
+\end{enumerate}
+
+\paragraph{Giả định về thời tiết.} Đặc trưng thời tiết tại giờ $t$ sử dụng giá trị \emph{quan sát} tại $t$,
+tương đương giả định có dự báo thời tiết hoàn hảo cho ngày mai. Đây là giả định phổ biến trong nghiên cứu
+STLF~\cite{hong2016probabilistic}; trong vận hành thực tế, sai số dự báo nhiệt độ sẽ làm sai số phụ tải tăng nhẹ.
+
+\subsubsection{Nhóm 1 -- Đặc trưng lịch (15 đặc trưng)}\label{sec:feat-cal}
+
+Dữ liệu gốc lưu thời gian theo UTC, và phần A trích \code{hour}, \code{dayofweek} theo UTC. Tuy nhiên hành vi
+tiêu dùng điện bám theo \textbf{giờ địa phương}: Tây Ban Nha dùng CET (UTC+1) vào mùa đông và CEST (UTC+2) vào
+mùa hè. Nếu dùng giờ UTC, đỉnh phụ tải buổi sáng sẽ ``trượt'' một giờ giữa hai mùa. Phần B vì vậy chuyển
+sang múi giờ \code{Europe/Madrid} trước khi trích đặc trưng (\cref{lst:calendar}).
+
+\begin{table}[H]
+\centering
+\caption{Đặc trưng lịch (tiền tố \code{cal_}).}\label{tab:feat-cal}
+\small
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+Đặc trưng & Ý nghĩa\\
+\midrule
+\code{hour}, \code{dayofweek}, \code{month}, \code{dayofyear} & Giờ (0--23), thứ (0 = Thứ Hai), tháng, ngày trong năm, theo giờ địa phương.\\
+\code{is_weekend} & 1 nếu Thứ Bảy/Chủ Nhật.\\
+\code{is_holiday} & 1 nếu là ngày lễ quốc gia Tây Ban Nha (1/1, 6/1, Thứ Sáu Tuần Thánh, 1/5, 15/8, 12/10, 1/11, 6/12, 8/12, 25/12).\\
+\code{is_offday} & Cuối tuần \emph{hoặc} ngày lễ --- ngày nghỉ nói chung.\\
+\code{is_bridge} & Ngày ``cầu'' (\emph{puente}): ngày làm việc kẹp giữa hai ngày nghỉ, nhiều người nghỉ phép.\\
+\code{is_dst} & 1 khi áp dụng giờ mùa hè (CEST); tính từ độ lệch giờ địa phương -- UTC.\\
+\code{hour_sin/cos}, \code{dow_sin/cos}, \code{doy_sin/cos} & Mã hóa tuần hoàn $\sin(2\pi x/P)$, $\cos(2\pi x/P)$ với chu kỳ $P = 24, 7, 365.25$.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Tại sao cần mã hóa tuần hoàn?} Biến giờ dạng số nguyên coi 23h và 0h cách nhau 23 đơn vị, trong
+khi thực tế chúng liền kề. Ánh xạ lên đường tròn đơn vị,
+\begin{equation}
+  x \mapsto \bigl(\sin(2\pi x/P),\ \cos(2\pi x/P)\bigr),
+\end{equation}
+bảo toàn khoảng cách tuần hoàn. Mô hình tuyến tính hưởng lợi nhiều nhất; mô hình cây vẫn dùng được cả hai
+dạng. Với mô hình tuyến tính, ngoài dạng tuần hoàn, \code{hour}, \code{dayofweek}, \code{month} còn được
+mã hóa one-hot và thêm tương tác \code{hour}~$\times$~\code{is_offday} (\cref{sec:linear}).
+
+\begin{lstlisting}[caption={Trích đặc trưng lịch theo giờ địa phương (rút gọn từ \code{features.py}).},label={lst:calendar}]
+local = df["time"].dt.tz_convert("Europe/Madrid")
+local_date = local.dt.tz_localize(None).dt.normalize()
+hour, dow = local.dt.hour, local.dt.day_of_week
+is_holiday = local_date.isin(SPAIN_HOLIDAYS)
+out["cal_is_offday"] = ((dow >= 5) | is_holiday).astype(int)
+utc_offset = local.dt.tz_localize(None) - df["time"].dt.tz_localize(None)
+out["cal_is_dst"] = (utc_offset == pd.Timedelta(hours=2)).astype(int)  # CEST
+out["cal_hour_sin"] = np.sin(2 * np.pi * hour / 24)
+\end{lstlisting}
+
+\subsubsection{Nhóm 2 -- Đặc trưng độ trễ và cửa sổ trượt (13 đặc trưng)}\label{sec:feat-lag}
+
+Phụ tải điện có quán tính và tính mùa vụ theo ngày/tuần, nên giá trị quá khứ là đặc trưng mạnh nhất. Với
+$h=24$, tập độ trễ hiệu lực là $\{24, 48, 72, 168, 336\}$ giờ:
+
+\begin{table}[H]
+\centering
+\caption{Đặc trưng độ trễ (với $h=24$). Ký hiệu $\tilde{y}_t = y_{t-h}$ là giá trị gần nhất quan sát được.}\label{tab:feat-lag}
+\small
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+Đặc trưng & Công thức / Ý nghĩa\\
+\midrule
+\code{lag_24}, \code{lag_48}, \code{lag_72} & $y_{t-24}, y_{t-48}, y_{t-72}$: cùng giờ 1, 2, 3 ngày trước.\\
+\code{lag_168}, \code{lag_336} & $y_{t-168}, y_{t-336}$: cùng giờ, cùng thứ 1 và 2 tuần trước.\\
+\code{roll_mean_24}, \code{roll_std_24} & Trung bình, độ lệch chuẩn của $\tilde{y}$ trong 24 giờ: mức nền và biên độ của ngày gần nhất.\\
+\code{roll_mean_168}, \code{roll_std_168} & Như trên với cửa sổ 1 tuần: mức nền theo tuần.\\
+\code{roll_min_24}, \code{roll_max_24} & Đáy đêm và đỉnh ngày của ngày gần nhất.\\
+\code{lag_same_hour_4w_mean} & $\frac14\sum_{k=1}^{4} y_{t-168k}$: trung bình cùng giờ cùng thứ của 4 tuần trước.\\
+\code{diff_24} & $y_{t-24} - y_{t-48}$: xu hướng tăng/giảm giữa hai ngày gần nhất.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{lstlisting}[caption={Đặc trưng độ trễ luôn dịch ít nhất $h$ giờ.},label={lst:lags}]
+y = df[TARGET]
+for lag in cfg.effective_lags:            # only lags >= horizon
+    out[f"lag_{lag}"] = y.shift(lag)
+base = y.shift(cfg.horizon)                # last observable value
+for w in cfg.roll_windows:                 # (24, 168)
+    out[f"roll_mean_{w}"] = base.rolling(w, min_periods=w).mean()
+    out[f"roll_std_{w}"]  = base.rolling(w, min_periods=w).std()
+\end{lstlisting}
+
+\subsubsection{Nhóm 3 -- Đặc trưng thời tiết (11 đặc trưng)}\label{sec:feat-weather}
+
+EDA của phần A (\cref{fig:eda}, ô 2) cho thấy quan hệ nhiệt độ--phụ tải có dạng \textbf{chữ U}: phụ tải tăng
+khi trời lạnh (sưởi) và khi trời nóng (điều hòa), thấp nhất quanh 15--19\,°C. Một hệ số tuyến tính duy nhất
+cho nhiệt độ không thể biểu diễn quan hệ này, nên phần B xây dựng các biến đổi phi tuyến dựa trên khái niệm
+\emph{độ-giờ sưởi/làm mát} (heating/cooling degree hours) quen thuộc trong ngành năng lượng:
+\begin{align}
+  \mathrm{HDH}_t &= \max\bigl(0,\ T_{\text{base}} - T_t\bigr), \qquad T_{\text{base}} = 18\,^\circ\mathrm{C},\\
+  \mathrm{CDH}_t &= \max\bigl(0,\ T_t - (T_{\text{base}} + 4)\bigr),
+\end{align}
+trong đó $T_t$ là nhiệt độ trung bình 5 thành phố (đổi từ Kelvin sang °C). Khoảng 18--22\,°C là ``vùng thoải
+mái'' không cần sưởi hay làm mát.
+
+\begin{table}[H]
+\centering
+\caption{Đặc trưng thời tiết (tiền tố \code{w_}).}\label{tab:feat-weather}
+\small
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+Đặc trưng & Ý nghĩa\\
+\midrule
+\code{temp_c} & Nhiệt độ trung bình (°C).\\
+\code{temp_c_sq} & $(T_t - 18)^2$: thành phần bậc hai mô tả dạng chữ U.\\
+\code{hdh}, \code{cdh} & Độ-giờ sưởi và làm mát (hàm hinge, tuyến tính từng khúc).\\
+\code{temp_range} & $T_{\max} - T_{\min}$ giữa các thành phố: mức độ chênh lệch nhiệt vùng miền.\\
+\code{humidity}, \code{pressure}, \code{wind_speed}, \code{clouds} & Độ ẩm, áp suất, gió, mây (trung bình 5 thành phố).\\
+\code{temp_roll24} & Nhiệt độ trung bình 24 giờ qua: \emph{quán tính nhiệt} của tòa nhà.\\
+\code{temp_roll24_diff} & $T_t - \overline{T}_{24h}$: thay đổi nhiệt đột ngột so với ngày trước.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Lưu ý về \code{temp_dev_mean} của phần A.} Cột này được tính bằng cách trừ nhiệt độ trung bình
+của từng thành phố trên \emph{toàn bộ} 4 năm, tức có dùng thông tin của tập test. Phần B không dùng cột này để
+tránh rò rỉ (dù mức độ rò rỉ nhỏ, chỉ là một hằng số theo thành phố).
+
+\subsubsection{Kiểm thử tự động}\label{sec:feat-tests}
+
+File \code{tests/test_features_and_evaluate.py} bổ sung các kiểm thử cho phần B:
+\begin{itemize}
+  \item \textbf{Không nhìn trước tương lai}: trên một chuỗi tổng hợp $y_t = t + c$, kiểm tra
+        \code{lag_k}$\,= y_t - k$, cửa sổ trượt kết thúc đúng tại $t-h$ và không đặc trưng lag nào
+        $\geq y_t$, với cả $h=1$ và $h=24$.
+  \item \textbf{Múi giờ và ngày lễ}: 08:00 UTC ngày 1/1/2018 phải là 9h địa phương và là ngày lễ;
+        22:30 UTC ngày 15/7/2018 phải là 0h ngày 16/7 (Thứ Hai) trong giờ mùa hè.
+  \item \textbf{Trên dữ liệu thật}: val/test giữ đủ 5\,260 dòng, không còn NaN, các tập không chồng lấn.
+  \item Mục tiêu, dự báo TSO và cột thời gian không lọt vào danh sách đặc trưng.
+\end{itemize}
+
+\input{sections/04_1_ket_qua}

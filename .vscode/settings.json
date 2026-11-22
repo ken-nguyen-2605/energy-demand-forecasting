@@ -1,0 +1,6 @@
+{
+  // LaTeX Workshop: write all build artefacts (aux, log, pdf, synctex, ...) to
+  // Report (For section B & C)/build instead of next to main.tex in src/.
+  // %DIR% = folder containing the root .tex file (i.e. .../src).
+  "latex-workshop.latex.outDir": "%DIR%/../build"
+}

@@ -1,0 +1,46 @@
+\section{Phân công công việc}\label{app:tasks}
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{lXl}
+\toprule
+Người & Công việc & Viết báo cáo\\
+\midrule
+A & Dữ liệu: tải, làm sạch, EDA, chia train/val/test theo thời gian & Mục 3; cùng E: mục 1\\
+B & Đặc trưng (lịch, lag, thời tiết). Repo, khung báo cáo & Mục 4.1\\
+C & Baseline, Ridge/Lasso, Random Forest. Viết \code{evaluate.py} dùng chung & Mục 4.2\\
+D & LightGBM/XGBoost, tinh chỉnh siêu tham số, SHAP. Chạy lại notebook sạch & Mục 2.2, 4.3, 6\\
+E & Đọc tài liệu chung. So sánh mô hình, thảo luận. Rà bản cuối & Mục 2.1, 5, 7; cùng A: mục 1\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Cấu trúc repo và cách chạy lại}\label{app:repo}
+\begin{lstlisting}[language=bash,numbers=none,caption={Tái lập toàn bộ kết quả của phần B và C.}]
+uv sync                                     # install env (Python 3.12)
+uv run python src/data_preprocessing.py     # part A: clean + split
+uv run python src/features.py               # part B: list the 39 features
+uv run python src/train_models.py           # part C: ~13 min, writes results/, plots/
+uv run pytest -q                            # 10 tests
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\caption{Các file do phần B và C tạo ra.}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.43\linewidth}X}
+\toprule
+File & Nội dung\\
+\midrule
+\code{src/features.py} & \code{FeatureConfig}, \code{make_datasets()}, \code{feature_columns()}: đặc trưng lịch/lag/thời tiết.\\
+\code{src/evaluate.py} & Chỉ số, \code{ResultsLog}, các hàm vẽ chẩn đoán --- dùng chung cho cả nhóm.\\
+\code{src/train_models.py} & Baseline, Ridge, Lasso, Random Forest, ablation, so sánh chân trời.\\
+\code{tests/test_features_and_evaluate.py} & Kiểm thử không nhìn trước, múi giờ, ngày lễ, chỉ số.\\
+\code{results/metrics.csv} & Bảng chỉ số đầy đủ (\cref{tab:main-results}).\\
+\code{results/predictions_test.parquet} & Dự báo trên tập test của mọi mô hình --- phần E dùng để so sánh.\\
+\code{results/tuning_ridge.csv}, \code{tuning_lasso.csv}, \code{tuning_rf.csv} & Đường cong tinh chỉnh siêu tham số.\\
+\code{results/ablation_features.csv}, \code{horizon_comparison.csv} & Thí nghiệm của phần B (\cref{tab:ablation,tab:horizon}).\\
+\code{results/feature_importance_rf.csv}, \code{lasso_coefficients.csv} & Độ quan trọng đặc trưng, hệ số Lasso.\\
+\bottomrule
+\end{tabularx}
+\end{table}

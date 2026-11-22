@@ -17,3 +17,16 @@ data/splits/*.csv
 # IPYNB checkpoints
 .ipynb_checkpoints/
 results/train_log.txt
+
+# LaTeX report: build output goes to Report*/build/ (already ignored by `build/` above);
+# these catch artefacts if someone compiles inside src/ by mistake.
+Report*/src/*.aux
+Report*/src/*.bbl
+Report*/src/*.blg
+Report*/src/*.log
+Report*/src/*.out
+Report*/src/*.toc
+Report*/src/*.fls
+Report*/src/*.fdb_latexmk
+Report*/src/*.synctex.gz
+Report*/src/*.pdf
