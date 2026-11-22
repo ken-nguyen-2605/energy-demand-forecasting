@@ -180,7 +180,7 @@ def feature_columns(frame: pd.DataFrame) -> list[str]:
 def make_datasets(cfg: FeatureConfig | None = None, split_dir: Path = SPLIT_DIR) -> dict[str, pd.DataFrame]:
     """Build features on the full timeline and cut them back into train/val/test.
 
-    Rows whose lag window is incomplete (the first ~2 weeks of train) are dropped.
+    Rows whose lag window is incomplete (the first 4 weeks = 672 h of train) are dropped.
     """
     cfg = cfg or FeatureConfig()
     splits = load_splits(split_dir)

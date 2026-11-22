@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.evaluate import ResultsLog, evaluate, mae, mape, r2, rmse, smape  # noqa: E402
 from src.features import (  # noqa: E402
