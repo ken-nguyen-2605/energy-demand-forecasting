@@ -1,6 +1,6 @@
 {
   "horizon": 24,
-  "n_features": 39,
+  "n_features": 42,
   "features": [
     "cal_hour",
     "cal_dayofweek",
@@ -11,6 +11,9 @@
     "cal_is_offday",
     "cal_is_bridge",
     "cal_is_dst",
+    "cal_is_special",
+    "cal_lag1d_is_off",
+    "cal_lag7d_is_off",
     "cal_hour_sin",
     "cal_hour_cos",
     "cal_dow_sin",
@@ -45,14 +48,14 @@
   "n_train": 23872,
   "n_val": 5260,
   "n_test": 5260,
-  "ridge_alpha": 100.0,
-  "lasso_alpha": 3.1622776601683795,
-  "lasso_nonzero": 82,
-  "lasso_total_coefs": 123,
+  "ridge_alpha": 0.01,
+  "lasso_alpha": 0.1,
+  "lasso_nonzero": 95,
+  "lasso_total_coefs": 126,
   "rf_best_params": {
     "max_depth": null,
-    "min_samples_leaf": 5,
-    "max_features": 1.0
+    "min_samples_leaf": 1,
+    "max_features": 0.5
   },
-  "runtime_s": 778.9
+  "runtime_s": 123.6
 }
