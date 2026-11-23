@@ -289,7 +289,7 @@ def make_plots(table, test, preds, curve_ridge, curve_lasso, curve_rf, imp, err_
 # ----------------------------------------------------------------------------
 # Part-B experiments: feature-family ablation and forecast horizon
 # ----------------------------------------------------------------------------
-def run_ablation(horizon: int, rf_params: dict, fast: bool) -> pd.DataFrame:
+def run_ablation(horizon: int, rf_params: dict, ridge_alpha: float, fast: bool) -> pd.DataFrame:
     """Fit Ridge and RF on train with different feature families, score on val."""
     setups = {
         "Calendar only": dict(use_calendar=True, use_lags=False, use_weather=False),
@@ -310,11 +310,11 @@ def run_ablation(horizon: int, rf_params: dict, fast: bool) -> pd.DataFrame:
         row = {"features": name, "n_features": len(cols), "RF_MAE": s_rf["MAE"], "RF_MAPE": s_rf["MAPE"]}
         if flags["use_calendar"]:  # linear pipeline needs calendar categories
             numeric = [c for c in cols if c not in CATEGORICAL]
-            lin, _ = timed_fit(make_linear(Ridge, 1.0, numeric), add_interactions(tr[cols]), tr[TARGET])
+            lin, _ = timed_fit(make_linear(Ridge, ridge_alpha, numeric), add_interactions(tr[cols]), tr[TARGET])
             s_lin = evaluate(va[TARGET], lin.predict(add_interactions(va[cols])))
         else:
             from sklearn.preprocessing import StandardScaler as _S
-            lin = Pipeline([("sc", _S()), ("m", Ridge(alpha=1.0))]).fit(tr[cols], tr[TARGET])
+            lin = Pipeline([("sc", _S()), ("m", Ridge(alpha=ridge_alpha))]).fit(tr[cols], tr[TARGET])
             s_lin = evaluate(va[TARGET], lin.predict(va[cols]))
         row.update({"Ridge_MAE": s_lin["MAE"], "Ridge_MAPE": s_lin["MAPE"]})
         rows.append(row)
@@ -357,7 +357,7 @@ def main() -> None:
     t0 = time.perf_counter()
     summary = run_main(args.horizon, args.fast)
     print("\nFeature-family ablation (val MAE) ...")
-    run_ablation(args.horizon, summary["rf_best_params"], args.fast)
+    run_ablation(args.horizon, summary["rf_best_params"], summary["ridge_alpha"], args.fast)
     print("\nHorizon comparison ...")
     run_horizon_comparison(summary["rf_best_params"], summary["ridge_alpha"])
     summary["runtime_s"] = round(time.perf_counter() - t0, 1)
