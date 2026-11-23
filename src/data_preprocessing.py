@@ -43,6 +43,34 @@ def timed(fn):
     return wrapper
 
 
+# "price actual" comes from REE and is the only value column with correct dates.
+CORRECTLY_DATED_COLS = ("time", "price actual")
+
+
+@timed
+def fix_day_month_swap(df: pd.DataFrame) -> pd.DataFrame:
+    """Restore values whose day and month are swapped in the raw energy file.
+
+    For days 1-12, a value labelled (year, month, day, hour) belongs to
+    (year, day, month, hour).
+    """
+    keys = ["year", "month", "day", "hour", "occurrence"]
+    stamp = df["time"].str.extract(r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2}) (?P<hour>\d{2})").astype(int)
+    # The hour repeated when DST ends appears twice with the same label.
+    stamp["occurrence"] = stamp.groupby(keys[:4]).cumcount()
+    is_swapped = (stamp["day"] <= 12) & (stamp["day"] != stamp["month"])
+    value_cols = df.columns.difference(CORRECTLY_DATED_COLS, sort=False)
+
+    source = stamp[is_swapped].rename(columns={"month": "day", "day": "month"}).join(df.loc[is_swapped, value_cols])
+    target = stamp[is_swapped].reset_index().merge(source, on=keys, how="left", validate="one_to_one", indicator=True)
+    assert (target["_merge"] == "both").all(), "Some swapped hours have no matching hour"
+
+    out = df.copy()
+    out.loc[target["index"].to_numpy(), value_cols] = target[value_cols].to_numpy()
+    print(f"Day/month swap fixed for {is_swapped.sum()} hours")
+    return out
+
+
 @timed
 def clean_energy(df: pd.DataFrame) -> pd.DataFrame:
     """Clean energy dataset using method chaining and integrity assertions."""
@@ -199,7 +227,7 @@ def main() -> None:
     weather_raw = pd.read_csv(cfg.data_dir / "weather_features.csv")
     print(f"Raw shapes -> energy: {energy_raw.shape}, weather: {weather_raw.shape}")
 
-    energy = clean_energy(energy_raw)
+    energy = clean_energy(fix_day_month_swap(energy_raw))
     weather_hourly = clean_and_aggregate_weather(weather_raw)
 
     # Validate 1-to-1 left join contract
