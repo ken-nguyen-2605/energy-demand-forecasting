@@ -4,7 +4,7 @@ Builds three feature families on top of the chronological splits produced by
 ``data_preprocessing.py``:
 
 1. Calendar features  - local (Europe/Madrid) hour, weekday, month, day of year,
-   weekend / Spanish national holiday flags and cyclical sin/cos encodings.
+   weekend, Spanish holiday and special-day flags, cyclical sin/cos encodings.
 2. Lag features       - past values of the target (``total load actual``) and
    rolling statistics, all shifted by at least the forecast ``horizon`` so that
    every feature is known at the moment the forecast is issued.
@@ -40,14 +40,23 @@ TARGET = "total load actual"
 TSO_FORECAST = "total load forecast"
 LOCAL_TZ = "Europe/Madrid"
 
-# Spanish *national* public holidays 2014-2018 (regional holidays are ignored).
-# Good Friday: 2015-04-03, 2016-03-25, 2017-04-14, 2018-03-30.
+# Spanish *national* public holidays (regional holidays are ignored).
+# 2014 and 2019 are included so that bridge days at the edges of the data are right.
+HOLIDAY_YEARS = range(2014, 2020)
 _FIXED_HOLIDAYS = ["01-01", "01-06", "05-01", "08-15", "10-12", "11-01", "12-06", "12-08", "12-25"]
-_GOOD_FRIDAYS = ["2015-04-03", "2016-03-25", "2017-04-14", "2018-03-30"]
-SPAIN_HOLIDAYS = pd.DatetimeIndex(
-    sorted(
-        [f"{y}-{md}" for y in range(2014, 2019) for md in _FIXED_HOLIDAYS] + _GOOD_FRIDAYS
-    )
+_EASTER_SUNDAYS = pd.to_datetime(["2014-04-20", "2015-04-05", "2016-03-27", "2017-04-16", "2018-04-01", "2019-04-21"])
+SPAIN_HOLIDAYS = pd.to_datetime(
+    [f"{y}-{md}" for y in HOLIDAY_YEARS for md in _FIXED_HOLIDAYS]
+).union(_EASTER_SUNDAYS - pd.Timedelta(days=2))  # Good Friday
+
+# Not national holidays, but much of the country is off: Holy Thursday, Easter Monday,
+# 24/12, 31/12 and the Monday after a national holiday that falls on a Sunday.
+SPAIN_SPECIAL_DAYS = (
+    (_EASTER_SUNDAYS - pd.Timedelta(days=3))
+    .union(_EASTER_SUNDAYS + pd.Timedelta(days=1))
+    .union(pd.to_datetime([f"{y}-{md}" for y in HOLIDAY_YEARS for md in ("12-24", "12-31")]))
+    .union(SPAIN_HOLIDAYS[SPAIN_HOLIDAYS.day_of_week == 6] + pd.Timedelta(days=1))
+    .difference(SPAIN_HOLIDAYS)
 )
 
 
@@ -81,6 +90,10 @@ def load_splits(split_dir: Path = SPLIT_DIR) -> dict[str, pd.DataFrame]:
 # ----------------------------------------------------------------------------
 # Feature families
 # ----------------------------------------------------------------------------
+def _is_day_off(dates: pd.Series) -> pd.Series:
+    return (dates.isin(SPAIN_HOLIDAYS) | dates.isin(SPAIN_SPECIAL_DAYS) | (dates.dt.day_of_week >= 5)).astype(int)
+
+
 def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     """Calendar features in *local* Spanish time (consumption follows local clocks)."""
     local = df["time"].dt.tz_convert(LOCAL_TZ)
@@ -105,6 +118,10 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     out["cal_is_bridge"] = ((~(dow >= 5)) & (~is_holiday) & prev_off & next_off).astype(int)
     utc_offset = local.dt.tz_localize(None) - df["time"].dt.tz_localize(None)
     out["cal_is_dst"] = (utc_offset == pd.Timedelta(hours=2)).astype(int)  # CEST = UTC+2
+    out["cal_is_special"] = local_date.isin(SPAIN_SPECIAL_DAYS).astype(int)
+    # Tells the model when lag_24 / lag_168 come from an off day.
+    out["cal_lag1d_is_off"] = _is_day_off(local_date - pd.Timedelta(days=1))
+    out["cal_lag7d_is_off"] = _is_day_off(local_date - pd.Timedelta(days=7))
     # Cyclical encodings so that 23h is close to 0h, December close to January.
     out["cal_hour_sin"] = np.sin(2 * np.pi * hour / 24)
     out["cal_hour_cos"] = np.cos(2 * np.pi * hour / 24)
@@ -115,12 +132,29 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _weekly_lag(df: pd.DataFrame, y: pd.Series, weeks: int) -> pd.Series:
+    """Target at the same Madrid clock hour ``weeks`` weeks earlier.
+
+    A plain shift drifts by one local hour after each DST change. Clock hours that
+    do not exist (spring change) fall back to the plain shift.
+    """
+    local = df["time"].dt.tz_convert(LOCAL_TZ).dt.tz_localize(None)
+    by_clock = pd.Series(y.to_numpy(), index=local.to_numpy())
+    by_clock = by_clock[~by_clock.index.duplicated()]
+    lagged = by_clock.reindex((local - pd.Timedelta(weeks=weeks)).to_numpy()).to_numpy()
+    return pd.Series(lagged, index=df.index).fillna(y.shift(168 * weeks))
+
+
 def add_lag_features(df: pd.DataFrame, cfg: FeatureConfig) -> pd.DataFrame:
     """Target lags and rolling statistics, all shifted by >= horizon hours."""
     y = df[TARGET]
     out = pd.DataFrame(index=df.index)
     for lag in cfg.effective_lags:
-        out[f"lag_{lag}"] = y.shift(lag)
+        # A clock-based lag can be one hour shorter, so a lag equal to the horizon stays a plain shift.
+        if lag % 168 == 0 and lag > cfg.horizon:
+            out[f"lag_{lag}"] = _weekly_lag(df, y, lag // 168)
+        else:
+            out[f"lag_{lag}"] = y.shift(lag)
     base = y.shift(cfg.horizon)  # last value observable when forecasting
     for w in cfg.roll_windows:
         out[f"roll_mean_{w}"] = base.rolling(w, min_periods=w).mean()
@@ -129,7 +163,8 @@ def add_lag_features(df: pd.DataFrame, cfg: FeatureConfig) -> pd.DataFrame:
     out["roll_max_24"] = base.rolling(24, min_periods=24).max()
     # Same hour, average over the last 4 weeks that are observable.
     weekly_lags = [k * 168 for k in range(1, 5) if k * 168 >= cfg.horizon]
-    out["lag_same_hour_4w_mean"] = pd.concat([y.shift(k) for k in weekly_lags], axis=1).mean(axis=1, skipna=False)
+    same_hour = [_weekly_lag(df, y, k // 168) if k > cfg.horizon else y.shift(k) for k in weekly_lags]
+    out["lag_same_hour_4w_mean"] = pd.concat(same_hour, axis=1).mean(axis=1, skipna=False)
     # Day-over-day difference of the last observable day (trend proxy).
     out["diff_24"] = base - y.shift(cfg.horizon + 24)
     return out
