@@ -57,8 +57,8 @@ def test_results_log_roundtrip():
 # ----------------------------------------------------------------------------
 # features.py on a synthetic series (fast, no data files needed)
 # ----------------------------------------------------------------------------
-def _synthetic(n_hours: int = 24 * 60) -> pd.DataFrame:
-    t = pd.date_range("2016-01-01", periods=n_hours, freq="h", tz="UTC")
+def _synthetic(n_hours: int = 24 * 60, start: str = "2016-01-01") -> pd.DataFrame:
+    t = pd.date_range(start, periods=n_hours, freq="h", tz="UTC")
     y = np.arange(n_hours, dtype=float) + 20_000
     return pd.DataFrame({
         "time": t, TARGET: y, TSO_FORECAST: y,
@@ -103,7 +103,8 @@ def test_calendar_uses_local_time_and_holidays():
 # ----------------------------------------------------------------------------
 # features.py on the real splits
 # ----------------------------------------------------------------------------
-@pytest.mark.skipif(not Path("data/splits/train.parquet").exists(), reason="splits not generated")
+@pytest.mark.skipif(not (Path(__file__).resolve().parent.parent / "data/splits/train.parquet").exists(),
+                    reason="splits not generated")
 def test_make_datasets_real_splits():
     data = make_datasets(FeatureConfig(horizon=24))
     tr, va, te = data["train"], data["val"], data["test"]
@@ -113,3 +114,40 @@ def test_make_datasets_real_splits():
     for part in (tr, va, te):
         assert not part[cols].isna().any().any()
     assert not any(c.startswith("lag_") and int(c.split("_")[1]) < 24 for c in cols if c[4:].isdigit())
+
+
+def test_special_days_and_bridge():
+    t = pd.Series(pd.to_datetime(["2018-03-29 10:00", "2018-04-02 10:00", "2018-12-23 23:30",
+                                  "2018-12-31 10:00", "2017-01-02 10:00", "2018-05-02 10:00"], utc=True))
+    cal = add_calendar_features(pd.DataFrame({"time": t}))
+    # Holy Thursday, Easter Monday, 24/12 in Madrid, 31/12, Monday after Sunday 1/1, normal day
+    assert cal["cal_is_special"].tolist() == [1, 1, 1, 1, 1, 0]
+    assert cal["cal_is_holiday"].sum() == 0
+    assert cal.loc[3, "cal_is_bridge"] == 1  # Mon 31/12/2018, between Sunday and 1/1/2019
+
+
+def test_good_friday_and_lag_day_flags():
+    t = pd.Series(pd.to_datetime(["2016-03-25 10:00", "2018-05-02 10:00", "2018-05-08 10:00"], utc=True))
+    cal = add_calendar_features(pd.DataFrame({"time": t}))
+    assert cal.loc[0, "cal_is_holiday"] == 1
+    assert cal.loc[1, "cal_lag1d_is_off"] == 1  # day after 1 May
+    assert cal.loc[2, "cal_lag7d_is_off"] == 1  # one week after 1 May
+
+
+def test_weekly_lags_follow_local_clock_across_dst():
+    df = _synthetic(24 * 41, start="2018-03-10")
+    df[TARGET] = df["time"].dt.tz_convert("Europe/Madrid").dt.hour * 1000.0
+    f = build_feature_frame(df, FeatureConfig(horizon=24))
+    week_after_change = f["time"].between(pd.Timestamp("2018-03-26", tz="UTC"), pd.Timestamp("2018-03-31 23:00", tz="UTC"))
+    assert (f.loc[week_after_change, "lag_168"] == f.loc[week_after_change, TARGET]).all()
+
+
+def test_weekly_lag_never_inside_horizon():
+    df = _synthetic(24 * 45, start="2018-03-01")
+    p = df.index[df["time"] == pd.Timestamp("2018-03-23 19:00", tz="UTC")][0]  # one week before the DST change
+    changed = df.copy()
+    changed.loc[p:, TARGET] += 5000.0
+    cfg = FeatureConfig(horizon=168)
+    base, f = build_feature_frame(df, cfg), build_feature_frame(changed, cfg)
+    cols = [c for c in feature_columns(base) if c.startswith(("lag_", "roll_", "diff_"))]
+    pd.testing.assert_frame_equal(base.loc[: p + 167, cols], f.loc[: p + 167, cols])

@@ -16,6 +16,7 @@ MAPE   mean absolute percentage error (%)    - scale free, load is never ~0
 sMAPE  symmetric MAPE (%)
 R2     coefficient of determination
 MaxAE  maximum absolute error (MW)           - worst hour
+ME     mean error, forecast - actual (MW)    - bias
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-METRICS = ("MAE", "RMSE", "MAPE", "sMAPE", "R2", "MaxAE")
+METRICS = ("MAE", "RMSE", "MAPE", "sMAPE", "R2", "MaxAE", "ME")
 
 
 def _as_arrays(y_true, y_pred) -> tuple[np.ndarray, np.ndarray]:
@@ -78,6 +79,12 @@ def max_ae(y_true, y_pred) -> float:
     return float(np.max(np.abs(yt - yp)))
 
 
+def me(y_true, y_pred) -> float:
+    """Bias (forecast - actual); positive means over-forecasting."""
+    yt, yp = _as_arrays(y_true, y_pred)
+    return float(np.mean(yp - yt))
+
+
 def evaluate(y_true, y_pred) -> dict[str, float]:
     """Compute every metric in ``METRICS`` and return them as a dict."""
     return {
@@ -87,6 +94,7 @@ def evaluate(y_true, y_pred) -> dict[str, float]:
         "sMAPE": smape(y_true, y_pred),
         "R2": r2(y_true, y_pred),
         "MaxAE": max_ae(y_true, y_pred),
+        "ME": me(y_true, y_pred),
     }
 
 

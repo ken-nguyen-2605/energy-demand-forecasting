@@ -1,6 +1,11 @@
+import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.data_preprocessing import fix_day_month_swap  # noqa: E402
 
 
 def test_splits_exist_and_chronological():
@@ -46,3 +51,14 @@ def test_leakage_free_float32_standardization():
     assert X_val_std.dtype == np.float32
     assert not np.isnan(X_train_std).any()
     assert np.allclose(X_train_std.mean(axis=0), 0.0, atol=1e-3)
+
+
+def test_fix_day_month_swap():
+    df = pd.DataFrame({
+        "time": ["2016-02-06 10:00:00+01:00", "2016-06-02 10:00:00+02:00", "2016-02-15 10:00:00+01:00"],
+        "total load actual": [1.0, 2.0, 3.0],
+        "price actual": [10.0, 20.0, 30.0],
+    })
+    out = fix_day_month_swap(df)
+    assert out["total load actual"].tolist() == [2.0, 1.0, 3.0]  # day 15 cannot be swapped
+    assert out["price actual"].tolist() == [10.0, 20.0, 30.0]
