@@ -1,0 +1,4 @@
+feature_family,n_features,lgbm_mean_abs_net_group_mw,lgbm_sum_indiv_mean_abs_mw,lgbm_sum_indiv_share_pct,xgb_mean_abs_net_group_mw,lgbm_net_group_share_pct
+Lag / Rolling (13),13,3355.9076,4195.2578,66.1057,3380.9626,73.7328
+Calendar (18),18,926.8373,1712.0442,26.9771,913.5519,20.3636
+Weather (11),11,268.7017,438.9839,6.9172,264.5566,5.9037

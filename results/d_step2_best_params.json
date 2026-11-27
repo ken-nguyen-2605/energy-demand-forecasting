@@ -1,0 +1,61 @@
+{
+  "lgbm_best_params": {
+    "objective": "regression",
+    "n_estimators": 1171,
+    "learning_rate": 0.029587700270243152,
+    "max_depth": 11,
+    "num_leaves": 66,
+    "min_child_samples": 11,
+    "subsample": 0.7216174337307728,
+    "subsample_freq": 1,
+    "colsample_bytree": 0.9243584755809624,
+    "reg_alpha": 2.1594533720567073,
+    "reg_lambda": 1.5704770175330198,
+    "random_state": 0,
+    "n_jobs": -1,
+    "verbose": -1
+  },
+  "lgbm_categorical_features": [
+    "cal_hour",
+    "cal_dayofweek",
+    "cal_month"
+  ],
+  "xgb_best_params": {
+    "objective": "reg:squarederror",
+    "n_estimators": 2529,
+    "learning_rate": 0.02030514952965016,
+    "max_depth": 7,
+    "min_child_weight": 24.82234864626723,
+    "subsample": 0.6839854465275714,
+    "colsample_bytree": 0.9351779629995216,
+    "reg_alpha": 0.002519507881299671,
+    "reg_lambda": 25.80608289615442,
+    "tree_method": "hist",
+    "random_state": 0,
+    "n_jobs": -1
+  },
+  "lgbm_best_val_summary": {
+    "MAE": 420.8407,
+    "RMSE": 641.7146,
+    "MAPE": 1.4471,
+    "sMAPE": 1.4448,
+    "R2": 0.9825,
+    "MaxAE": 5810.4022,
+    "ME": -60.6152,
+    "train_MAE": 106.7804,
+    "gap_MAE": 314.0603,
+    "best_iteration": 1171.0
+  },
+  "xgb_best_val_summary": {
+    "MAE": 429.644,
+    "RMSE": 644.1434,
+    "MAPE": 1.4766,
+    "sMAPE": 1.4761,
+    "R2": 0.9823,
+    "MaxAE": 4970.2988,
+    "ME": -97.6533,
+    "train_MAE": 127.9511,
+    "gap_MAE": 301.6929,
+    "best_iteration": 2529.0
+  }
+}

@@ -1,0 +1,5 @@
+case,test_row_idx,local_time,base_value_mw,actual_mw,pred_mw,residual_y_minus_yhat_mw,top_5_shap_drivers
+peak,1648,2018-08-03 13:00 CEST (Fri),28635.336077372667,39756.0,39457.33125607287,298.6687439271336,lag_24=39378.0 (+3575 MW); lag_same_hour_4w_mean=36604.0 (+3002 MW); lag_168=37236.0 (+1754 MW); w_temp_roll24=29.5 (+738 MW); cal_is_offday=0.0 (+549 MW)
+holiday,3327,2018-10-12 12:00 CEST (Fri),28635.336077372667,26606.0,26742.513549482614,-136.5135494826136,cal_is_offday=1.0 (-2133 MW); cal_is_holiday=1.0 (-1721 MW); lag_same_hour_4w_mean=34328.2 (+1319 MW); lag_168=32845.0 (+1064 MW); w_temp_roll24=20.1 (-258 MW)
+worst_error,5101,2018-12-25 09:00 CET (Tue),28635.336077372667,20540.0,23745.855737157006,-3205.855737157006,cal_is_offday=1.0 (-2542 MW); cal_is_holiday=1.0 (-2258 MW); lag_168=36692.0 (+1568 MW); lag_24=28255.0 (-1200 MW); lag_same_hour_4w_mean=35410.0 (+1177 MW)
+sensor_glitch,231,2018-06-05 12:00 CEST (Tue),28635.336077372667,19964.0,31766.79319272155,-11802.79319272155,lag_same_hour_4w_mean=32052.8 (+1690 MW); lag_168=32505.0 (+842 MW); cal_is_offday=0.0 (+492 MW); w_temp_roll24=18.8 (-281 MW); cal_hour=12.0 (+227 MW)
