@@ -1,0 +1,5 @@
+model,split,MAE,RMSE,MAPE,sMAPE,R2,MaxAE,ME,family,fit_s
+LightGBM (default),train,328.2156,446.5091,1.1659,1.1637,0.9901,11241.9017,-0.0000,boosting_step1,0.5466
+LightGBM (default),val,498.3146,743.8051,1.7192,1.7168,0.9765,6158.1804,-83.4380,boosting_step1,0.5466
+XGBoost (default),train,213.6742,282.7883,0.7619,0.7615,0.9960,4923.1582,0.0017,boosting_step1,1.1836
+XGBoost (default),val,540.3490,819.9276,1.8765,1.8676,0.9714,7170.0391,-89.5608,boosting_step1,1.1836
